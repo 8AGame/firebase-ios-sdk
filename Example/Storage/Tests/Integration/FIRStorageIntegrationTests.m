@@ -454,6 +454,86 @@ NSTimeInterval kFIRStorageIntegrationTestTimeout = 30;
     [self waitForExpectations];
 }
 
+- (void)testUpdateMetadata {
+  XCTestExpectation *expectation =
+    [self expectationWithDescription:@"testUpdateMetadata"];
+
+  FIRStorageReference *ref = [self.storage referenceWithPath:@"ios/public/1mb"];
+
+  // Update all available metadata
+  FIRStorageMetadata *metadata = [[FIRStorageMetadata alloc] init];
+  metadata.cacheControl = @"cache-control";
+  metadata.contentDisposition = @"content-disposition";
+  metadata.contentEncoding = @"gzip";
+  metadata.contentLanguage = @"de";
+  metadata.contentType = @"content-type-a";
+  metadata.customMetadata = @{ @"a" : @"b" };
+
+  void (^assertMetadata)(FIRStorageMetadata*, NSString*, NSDictionary*) =
+      ^(FIRStorageMetadata* actualMetadata, NSString* expectedContentType, NSDictionary* expectedCustomMetadata) {
+    XCTAssertEqualObjects(actualMetadata.cacheControl, @"cache-control");
+    XCTAssertEqualObjects(actualMetadata.contentDisposition, @"content-disposition");
+    XCTAssertEqualObjects(actualMetadata.contentEncoding, @"gzip");
+    XCTAssertEqualObjects(actualMetadata.contentLanguage, @"de");
+    XCTAssertEqualObjects(actualMetadata.contentType, expectedContentType);
+    for(id key in expectedCustomMetadata) {
+      XCTAssertEqualObjects([actualMetadata.customMetadata objectForKey:key], [expectedCustomMetadata objectForKey:key]);
+    }
+  };
+
+  [ref updateMetadata:metadata completion:^ (FIRStorageMetadata* updatedMetadata, NSError* error ){
+    XCTAssertNil(error);
+    assertMetadata(updatedMetadata, @"content-type-a", @{ @"a" : @"b" });
+
+    // Update a subset of the metadata using a new object.
+    FIRStorageMetadata *metadata = [[FIRStorageMetadata alloc] init];
+    metadata.contentType = @"content-type-b";
+    metadata.customMetadata = @{ @"c" : @"d" };
+
+    [ref updateMetadata:metadata completion:^ (FIRStorageMetadata* updatedMetadata, NSError* error ){
+      XCTAssertNil(error);
+      assertMetadata(updatedMetadata, @"content-type-b", @{ @"a" : @"b", @"c" : @"d" });
+
+      // Update a subset of the metadata using the existing object.
+      FIRStorageMetadata *metadata  = updatedMetadata;
+      metadata.contentType = @"content-type-c";
+      metadata.customMetadata = @{ @"e" : @"f" };
+
+      [ref updateMetadata:metadata completion:^ (FIRStorageMetadata* updatedMetadata, NSError* error ) {
+        XCTAssertNil(error);
+        assertMetadata(updatedMetadata, @"content-type-c", @{ @"e" : @"f" });
+        XCTAssertNil([updatedMetadata.customMetadata objectForKey:@"a"]);
+        XCTAssertNil([updatedMetadata.customMetadata objectForKey:@"c"]);
+
+        // Clear all metadata.
+        FIRStorageMetadata *metadata = updatedMetadata;
+        metadata.cacheControl = nil;
+        metadata.contentDisposition = nil;
+        metadata.contentEncoding = nil;
+        metadata.contentLanguage = nil;
+        metadata.contentType = nil;
+        metadata.customMetadata = [NSDictionary dictionary];
+
+        [ref updateMetadata:metadata completion:^ (FIRStorageMetadata* updatedMetadata, NSError* error ){
+          XCTAssertNil(error);
+          XCTAssertNil(updatedMetadata.cacheControl);
+          XCTAssertNil(updatedMetadata.contentDisposition);
+          XCTAssertEqualObjects(updatedMetadata.contentEncoding, @"identity");
+          XCTAssertNil(updatedMetadata.contentLanguage);
+          XCTAssertNil(updatedMetadata.contentType);
+          XCTAssertNil([updatedMetadata.customMetadata objectForKey:@"a"]);
+          XCTAssertNil([updatedMetadata.customMetadata objectForKey:@"c"]);
+          XCTAssertNil([updatedMetadata.customMetadata objectForKey:@"f"]);
+
+          [expectation fulfill];
+        }];
+      }];
+    }];
+  }];
+
+  [self waitForExpectations];
+}
+
 - (void)testUnauthenticatedResumeGetFile {
     XCTestExpectation *expectation =
       [self expectationWithDescription:@"testUnauthenticatedResumeGetFile"];
